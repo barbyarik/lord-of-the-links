@@ -10,8 +10,9 @@ from io import BytesIO
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from urllib.parse import unquote, urlsplit
+from xml.etree import ElementTree as ET
 
-from .dataset_io import DatasetError, load_dataset
+from .dataset_io import DatasetError, bundle_file, load_dataset
 from .ui_dataset import build_ui
 
 STATIC = Path(__file__).resolve().parent / 'static'
@@ -23,7 +24,8 @@ def dataset_root(folder):
     for name in ('dataset.json', 'frames.csv', 'dataset-2fps/frames.csv'):
         if (folder / name).is_file():
             return folder
-    children = [path for path in folder.iterdir() if path.is_dir() and path.name != '__MACOSX']
+    children = [path for path in folder.iterdir()
+                if path.is_dir() and not path.is_symlink() and path.name != '__MACOSX']
     if len(children) == 1:
         return dataset_root(children[0])
     raise DatasetError(f'No demo bundle or 2 Hz reference export in {folder}')
@@ -49,7 +51,7 @@ def prepare(data, floor=None):
         payload = json.loads((data / 'dataset.json').read_text(encoding='utf-8'))
         media = {}
         for camera in payload['manifest']['cameras']:
-            video = within(data, camera['video'])
+            video = bundle_file(data, camera['video'], {'.mp4', '.webm'})
             if video is None:
                 raise DatasetError(f"Missing video for camera {camera['camera_id']}: {camera['video']}")
             media[f"/data/{camera['video']}"] = video
@@ -60,34 +62,73 @@ def prepare(data, floor=None):
             video = camera['video']
             if not video or video.startswith('/'):
                 continue
-            file = within(data, video)
+            file = bundle_file(data, video, {'.mp4', '.webm'})
             if file is None:
                 raise DatasetError(f"Missing video for camera {camera['camera_id']}: {video}")
             media[f'/data/{video}'] = file
-    floor = Path(floor) if floor is not None else data / 'floor'
-    files = {f'/floor/{name}': floor / name for name in FLOOR_FILES if (floor / name).is_file()}
+    floor_root = Path(floor).resolve() if floor is not None else data
+    floor_path = Path('.') if floor is not None else Path('floor')
+    files = {f'/floor/{name}': file for name in FLOOR_FILES
+             if (file := bundle_file(floor_root, floor_path / name)) is not None}
     generated = {}
     if len(files) != len(FLOOR_FILES):
-        if payload['manifest']['source_format'] == 'predictions' or floor != data / 'floor':
-            raise DatasetError(f'Missing floor handoff files in {floor}')
+        if payload['manifest']['source_format'] == 'predictions' or floor is not None:
+            raise DatasetError(f'Missing floor handoff files in {floor_root / floor_path}')
         payload['manifest']['spatial_available'] = False
         generated['/floor/tracks-floor.json'] = ('application/json', b'{"tracks":{}}')
         generated['/floor/calibration.json'] = ('application/json', b'{"anchors":{"walkable":[]}}')
         generated['/floor/plan.svg'] = ('image/svg+xml', b'<svg xmlns="http://www.w3.org/2000/svg"/>')
+    plan = files.pop('/floor/plan.svg', None)
+    if plan is not None:
+        generated['/floor/plan.svg'] = ('image/svg+xml', safe_floor_plan(plan))
     generated['/dataset.json'] = json_response(payload)
     generated['/validation.json'] = json_response(payload['validation'])
     return payload, {**media, **files}, generated
+
+
+SVG_NAMESPACE = 'http://www.w3.org/2000/svg'
+PLAN_ELEMENTS = {'svg', 'g', 'path', 'rect', 'circle', 'ellipse', 'line', 'polyline',
+                 'polygon', 'text', 'tspan', 'title', 'desc', 'defs', 'linearGradient',
+                 'radialGradient', 'stop', 'clipPath', 'mask'}
+PLAN_ATTRIBUTES = set((
+    'viewBox width height x y x1 x2 y1 y2 cx cy r rx ry d points transform '
+    'id class fill fill-opacity fill-rule stroke stroke-width stroke-opacity stroke-linecap '
+    'stroke-linejoin stroke-dasharray opacity text-anchor font-size font-family font-weight '
+    'dominant-baseline offset stop-color stop-opacity gradientUnits gradientTransform '
+    'clip-path clip-rule mask preserveAspectRatio'
+).split())
+ET.register_namespace('', SVG_NAMESPACE)
+
+
+def safe_floor_plan(path):
+    """Keep static SVG drawing primitives, without scripts or external references."""
+    try:
+        root = ET.fromstring(path.read_bytes())
+    except ET.ParseError as error:
+        raise DatasetError(f'Invalid floor plan: {error}') from error
+    if root.tag != f'{{{SVG_NAMESPACE}}}svg':
+        raise DatasetError('Floor plan must be an SVG document')
+
+    def clean(element):
+        for name, value in list(element.attrib.items()):
+            normalized = value.strip().lower()
+            if name not in PLAN_ATTRIBUTES or ('url(' in normalized and not normalized.startswith('url(#')):
+                del element.attrib[name]
+        for child in list(element):
+            namespace, _, name = child.tag.rpartition('}')
+            if namespace == f'{{{SVG_NAMESPACE}' and name in PLAN_ELEMENTS:
+                clean(child)
+            else:
+                element.remove(child)
+
+    clean(root)
+    return ET.tostring(root, encoding='utf-8')
 
 
 def json_response(value):
     return 'application/json; charset=utf-8', json.dumps(
         value, ensure_ascii=False, separators=(',', ':'), allow_nan=False,
     ).encode('utf-8')
-
-
-def within(root, relative):
-    target = (root / relative).resolve()
-    return target if target.is_relative_to(root) and target.is_file() else None
 
 
 class DemoHandler(SimpleHTTPRequestHandler):
@@ -106,7 +147,7 @@ class DemoHandler(SimpleHTTPRequestHandler):
             self.end_headers()
             return BytesIO(body)
 
-        file = self.files.get(url) or within(STATIC, url.lstrip('/') or 'index.html')
+        file = self.files.get(url) or bundle_file(STATIC, url.lstrip('/') or 'index.html')
         if file is None:
             self.send_error(404)
             return None
@@ -149,6 +190,9 @@ class DemoHandler(SimpleHTTPRequestHandler):
 
     def end_headers(self):
         self.send_header('Cache-Control', 'no-cache')
+        self.send_header('X-Content-Type-Options', 'nosniff')
+        self.send_header('Content-Security-Policy', "default-src 'self'; style-src 'self' 'unsafe-inline'; "
+                         "object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
         super().end_headers()
 
 

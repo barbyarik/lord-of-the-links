@@ -699,5 +699,204 @@
         "validation_p90_height_units": null
       }
     }
+  },
+  "native_wh": [
+    2592,
+    1944
+  ],
+  "plan_view_box": [
+    53,
+    50,
+    572,
+    605
+  ],
+  "units": "plan.svg viewBox units (not metres)",
+  "plan": "plan.svg",
+  "guards": {
+    "min_box_height_px": 45,
+    "foot_y_px_exclusive": [
+      30,
+      1910
+    ],
+    "box_x_bounds_px_exclusive": [
+      15,
+      2577
+    ],
+    "walkable_slack_plan_units": 8,
+    "fusion_diameter_plan_units": 18.0,
+    "sync_tolerance_s": 0.45,
+    "local_scale_inclusive_exclusive": [
+      1,
+      4000
+    ]
+  },
+  "anchors": {
+    "plan": "office_coverage.svg",
+    "coordinate_space": "plan before the enclosing translate(44,100)",
+    "status": "approximate hand anchors, not survey calibration",
+    "image_scale": 3,
+    "images": "runs/calibration-review/camera-{camera}.jpg",
+    "landmarks": {
+      "1": [
+        {
+          "label": "base near the TV",
+          "image": [
+            176,
+            215
+          ],
+          "plan": [
+            256,
+            204
+          ]
+        },
+        {
+          "label": "far corner",
+          "image": [
+            675,
+            166
+          ],
+          "plan": [
+            155,
+            204
+          ]
+        },
+        {
+          "label": "right wall foot",
+          "image": [
+            832,
+            348
+          ],
+          "plan": [
+            155,
+            158
+          ]
+        },
+        {
+          "label": "right table leg",
+          "image": [
+            567,
+            340
+          ],
+          "plan": [
+            181,
+            171
+          ]
+        },
+        {
+          "label": "left table leg",
+          "image": [
+            294,
+            386
+          ],
+          "plan": [
+            234,
+            171
+          ]
+        }
+      ],
+      "3": [
+        {
+          "label": "gaming area corner",
+          "image": [
+            452,
+            389
+          ],
+          "plan": [
+            286,
+            205
+          ]
+        },
+        {
+          "label": "opposite corridor edge",
+          "image": [
+            245,
+            430
+          ],
+          "plan": [
+            322,
+            205
+          ]
+        },
+        {
+          "label": "far corridor left edge",
+          "image": [
+            298,
+            52
+          ],
+          "plan": [
+            322,
+            550
+          ]
+        },
+        {
+          "label": "far corridor right edge",
+          "image": [
+            339,
+            52
+          ],
+          "plan": [
+            286,
+            550
+          ]
+        },
+        {
+          "label": "base of TV cabinet",
+          "image": [
+            805,
+            326
+          ],
+          "plan": [
+            238,
+            205
+          ]
+        }
+      ],
+      "4": [
+        {
+          "label": "branch mouth left edge",
+          "image": [
+            140,
+            435
+          ],
+          "plan": [
+            286,
+            373
+          ]
+        },
+        {
+          "label": "branch mouth right edge",
+          "image": [
+            457,
+            469
+          ],
+          "plan": [
+            286,
+            345
+          ]
+        },
+        {
+          "label": "rear left edge",
+          "image": [
+            303,
+            164
+          ],
+          "plan": [
+            173,
+            373
+          ]
+        },
+        {
+          "label": "rear right edge",
+          "image": [
+            450,
+            166
+          ],
+          "plan": [
+            173,
+            345
+          ]
+        }
+      ]
+    }
   }
 }

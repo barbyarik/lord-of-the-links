@@ -14,6 +14,17 @@ def require(ok, message):
     if not ok:
         raise DatasetError(message)
 
+def bundle_file(root, path, suffixes=None):
+    """Resolve bundle references without following links outside the selected root."""
+    path = Path(path)
+    if path.is_absolute():
+        return None
+    target = (root / path).resolve()
+    if not target.is_relative_to(root) or (suffixes is not None and target.suffix.lower() not in suffixes):
+        return None
+    return target if target.is_file() else None
+
+
 def read_csv(path, required=()):
     require(path.is_file(), f'Missing file: {path}')
     with path.open(encoding='utf-8-sig', newline='') as f:
@@ -60,7 +71,7 @@ CAM_FIELDS = 'camera_id plan_label source sha256 container_duration_s first_deco
 CLOCKS = {'ocr', 'manual', 'estimated', 'estimated_from_1fps', 'unreadable', 'missing'}
 
 
-def validate_frames(frames, observations, cameras, strict=True, image_root=None):
+def validate_frames(frames, observations, cameras, strict=True, image_root=None, bundle_root=None):
     by_key, obs_keys, counts = {}, set(), Counter()
     for f in frames:
         key = f['camera_id'], f['sample_ms']
@@ -79,7 +90,9 @@ def validate_frames(frames, observations, cameras, strict=True, image_root=None)
             require(0 <= f['pts_ms']-f['sample_ms'] <= 120, f'PTS outside [sample_ms, sample_ms+120] at {key}')
             require(f['frame_index'] >= 0, f'Negative frame_index at {key}')
             if image_root is not None:
-                require(bool(f.get('image')) and (image_root/f['image']).is_file(), f'Preview missing at {key}: {f.get("image")}')
+                relative = image_root.relative_to(bundle_root) / f['image'] if f.get('image') else None
+                require(relative is not None and bundle_file(bundle_root, relative, {'.jpg', '.jpeg', '.png'}),
+                        f'Invalid or missing preview at {key}')
             if f['review_status'] == 'reviewed':
                 require(f['person_count'] is not None and f['person_count'] >= 0, f'Reviewed frame lacks person_count at {key}')
             else:
@@ -224,6 +237,6 @@ def load_dataset(root):
         warnings = ['clock_time has no timezone and does not guarantee cross-camera synchronization.']
         camera_root=camera_path.parent
         manifest = None
-    index = validate_frames(frames, observations, cameras, strict, annotation_root if strict else None)
+    index = validate_frames(frames, observations, cameras, strict, annotation_root if strict else None, root)
     validate_tracks(export, observations, index, strict)
-    return {'kind':'contract' if strict else 'handoff','annotation_root':annotation_root,'camera_root':camera_root,'frames':frames,'observations':observations,'export':export,'cameras':cameras,'camera_rows':cam_rows,'reviews':reviews,'manifest':manifest,'warnings':warnings}
+    return {'root':root,'kind':'contract' if strict else 'handoff','annotation_root':annotation_root,'camera_root':camera_root,'frames':frames,'observations':observations,'export':export,'cameras':cameras,'camera_rows':cam_rows,'reviews':reviews,'manifest':manifest,'warnings':warnings}

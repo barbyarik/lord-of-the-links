@@ -10,8 +10,8 @@ export class OfficeMap{
   this.svg = svg;
   this.iso = false;
   this.zoom = 1;
-  this.walkable = config.anchors.walkable;
-  this.layout = config.display ?? (config.anchors.plan === 'office_coverage.svg' ? officeLayout : {});
+  this.walkable = config.geometry?.walkable ?? config.anchors?.walkable ?? [];
+  this.layout = config.display ?? (config.anchors?.plan === 'office_coverage.svg' ? officeLayout : {});
   this.cameras = this.layout.cameras ?? [];
   const dom = new DOMParser().parseFromString(source, 'image/svg+xml');
   this.source = dom.documentElement;

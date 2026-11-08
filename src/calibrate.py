@@ -62,13 +62,14 @@ def recalibrate(site, landmarks, max_plan_error=None):
 
     if 'office_geometry' in site:
         geometry = site['office_geometry']
-        corrections = 'junction_corrections'
+        corrections = ('junction_corrections', 'corrections')
     else:
         geometry = site.setdefault('geometry', {})
-        corrections = 'corrections'
+        corrections = ('corrections',)
     geometry.setdefault('matrices', {}).update(matrices)
-    for camera in matrices:
-        geometry.get(corrections, {}).pop(camera, None)
+    for key in corrections:
+        for camera in matrices:
+            geometry.get(key, {}).pop(camera, None)
     disabled_pairs = set()
     for pairs in (site.get('pairwise', {}), site.get('association', {}).get('pair_geometry', {})):
         for pair in list(pairs):

@@ -6,8 +6,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from shutil import copyfile
 
+from ..floor_geometry import normalize_site
 from .floor import floor_tracks
-from .media import prepare_media
+from .media import media_metadata, prepare_media
 from .timing import disambiguate_clock
 
 
@@ -25,9 +26,10 @@ def build_bundle(predictions: Path, output: Path, *, calibration: Path, media,
     recording_start = prediction['recording_start']
     common_t0 = displayed_time(recording_start)
     calibration = Path(calibration)
-    site = json.loads(calibration.read_text(encoding='utf-8'))
+    site = normalize_site(json.loads(calibration.read_text(encoding='utf-8')))
     plan = Path(plan) if plan is not None else calibration.with_name(site['plan'])
-    width, height = site['native_wh']
+    source_dimensions = prediction.get('source_dimensions', {})
+    image_sizes = {}
     grouped = defaultdict(list)
     for frame in prediction['frames']:
         grouped[frame['camera']].append(frame)
@@ -39,6 +41,16 @@ def build_bundle(predictions: Path, output: Path, *, calibration: Path, media,
     adjusted_frames = 0
     for camera, rows in sorted(grouped.items()):
         rows.sort(key=lambda row: row['pts'])
+        dimensions = source_dimensions.get(str(camera), site.get('native_wh'))
+        if dimensions is None:
+            source_metadata = media_metadata(media[camera])
+            if source_metadata is None:
+                raise ValueError(f'Camera {camera}: source dimensions are required')
+            dimensions = source_metadata[:2]
+        width, height = dimensions
+        if min(width, height) <= 0:
+            raise ValueError(f'Camera {camera}: invalid source dimensions')
+        image_sizes[camera] = (height, width)
         offset = (media_offsets or {}).get(camera)
         video, origin, metadata = prepare_media(media[camera], output / 'videos', camera, offset)
         prepared = [browser_frame(row, recording_start, origin) for row in rows]
@@ -73,11 +85,16 @@ def build_bundle(predictions: Path, output: Path, *, calibration: Path, media,
                'tracks': tracks, 'intervals': intervals, 'validation': report}
     floor = output / 'floor'
     floor.mkdir(parents=True, exist_ok=True)
-    for source, target in ((plan, floor / 'plan.svg'), (calibration, floor / 'calibration.json')):
-        if source.resolve() != target.resolve():
-            copyfile(source, target)
+    target = floor / 'plan.svg'
+    if plan.resolve() != target.resolve():
+        copyfile(plan, target)
+    viewer_fields = ('geometry', 'plan_view_box', 'display')
+    viewer_site = {key: site[key] for key in viewer_fields if key in site}
+    if site.get('anchors', {}).get('plan'):
+        viewer_site['anchors'] = {'plan': site['anchors']['plan']}
+    write_json(floor / 'calibration.json', viewer_site)
     write_json(floor / 'tracks-floor.json', floor_tracks(
-        observations, site, sample_hz, common_t0, smoothing_sigma,
+        observations, site, image_sizes, sample_hz, common_t0, smoothing_sigma,
     ))
     with (output / 'tracks.csv').open('w', encoding='utf-8', newline='') as stream:
         writer = csv.writer(stream)

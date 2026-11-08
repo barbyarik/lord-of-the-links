@@ -39,10 +39,6 @@ def read_detection_bundle(source):
     return {int(camera): read_object(data) for camera, data in cameras.items()}, scene
 
 
-def read_detections(source):
-    return read_detection_bundle(source)[0]
-
-
 def read_appearance_bundle(source):
     if source is None:
         return {}, {}
@@ -62,10 +58,6 @@ def read_appearance_bundle(source):
         if 'source_cameras' in cache:
             sources = dict(zip(cache['source_cameras'].tolist(), cache['source_sha256'].tolist(), strict=True))
         return by_crop, sources
-
-
-def read_appearance(source):
-    return read_appearance_bundle(source)[0]
 
 
 def video_fingerprint(path):
@@ -135,8 +127,10 @@ def stitch_frames(frames, image_sizes, site, rules, appearance, stable, votes, s
                            penalty='penalty' in rules)
 
     geometry = site.get('geometry', {})
+    guards = site.get('guards')
     needs_geometry = bool(rules & {'strict_floor', 'late_overlap', 'far_veto'})
-    simultaneous, far = geometry_evidence(tracks, frames, raw, geometry, image_sizes) if needs_geometry else ([], set())
+    simultaneous, far = (geometry_evidence(tracks, frames, raw, geometry, image_sizes, guards)
+                         if needs_geometry else ([], set()))
     forbidden = strict_conflicts(simultaneous, far) if 'strict_floor' in rules else set()
     seeds = {local: local for local in tracks}
     if 'early_dedup' in rules:
@@ -148,7 +142,7 @@ def stitch_frames(frames, image_sizes, site, rules, appearance, stable, votes, s
         if proposed_frames is not frames and needs_geometry:
             surviving = [edge for edge in raw if edge[1] in proposed_tracks and edge[2] in proposed_tracks]
             proposed_simultaneous, proposed_far = geometry_evidence(
-                proposed_tracks, proposed_frames, surviving, geometry, image_sizes)
+                proposed_tracks, proposed_frames, surviving, geometry, image_sizes, guards)
             proposed_forbidden = (strict_conflicts(proposed_simultaneous, proposed_far)
                                   if 'strict_floor' in rules else set())
         if all(proposed_seeds[a] != proposed_seeds[b] for a, b in proposed_forbidden):
@@ -188,7 +182,7 @@ def stitch_frames(frames, image_sizes, site, rules, appearance, stable, votes, s
     return retain_tracks(frames, lambda frame, track: track['id'] in assignment), assignment
 
 
-def export_predictions(frames, assignment, start, profile):
+def export_predictions(frames, assignment, start, profile, image_sizes):
     # Enforce the observation gap even if a later repair deleted the last bridging box.
     groups = defaultdict(list)
     for frame in frames:
@@ -218,7 +212,9 @@ def export_predictions(frames, assignment, start, profile):
         exported.append({'camera': camera, 'frame_index': index, 'pts': frame['pts'],
                          'time': frame['time'], 'tracks': tracks})
     return {'schema_version': 1, 'profile': profile, 'sampling_hz': SAMPLING_HZ,
-            'recording_start': start, 'frames': exported}
+            'recording_start': start, 'frames': exported,
+            'source_dimensions': {str(camera): [int(width), int(height)]
+                                  for camera, (height, width) in sorted(image_sizes.items())}}
 
 
 def write_json(path, payload):
@@ -322,6 +318,20 @@ def run_pipeline(videos=None, *, site, profile='balanced', detection_cache=None,
             raise ValueError('recording_start is required for an empty detection cache')
         start = min(starts)
 
+    if detection_cache is not None:
+        bounds = {'start': start}
+        if end is not None:
+            bounds['end'] = end
+        cached = {
+            camera: {
+                **data,
+                'config': data['config'] | bounds,
+                'frames': [frame for frame in data['frames']
+                           if frame['time'] >= start and (end is None or frame['time'] < end)],
+            }
+            for camera, data in cached.items()
+        }
+
     stable, votes = resolve_scene(site, cached_scene, rules, cached, videos, yolo, model_dir, device, progress)
     if detection_cache_output is not None:
         scene = {'capabilities': sorted(scene_requirements(rules)), 'regions': stable, 'mirror_votes': votes}
@@ -338,7 +348,7 @@ def run_pipeline(videos=None, *, site, profile='balanced', detection_cache=None,
     frames, assignment = stitch_frames(frames, image_sizes, site, rules, appearance, stable, votes, start)
     if appearance_cache_output is not None:
         write_appearance(appearance_cache_output, appearance.known, sources)
-    predictions = export_predictions(frames, assignment, start, name)
+    predictions = export_predictions(frames, assignment, start, name, image_sizes)
     if output is not None:
         write_json(output, predictions)
     return predictions

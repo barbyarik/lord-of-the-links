@@ -1,8 +1,10 @@
 """Project tracked boxes onto the configured floor and fuse simultaneous views."""
 from collections import defaultdict
 from itertools import combinations
-from math import ceil, cos, exp, hypot, isfinite, radians, sqrt
+from math import ceil, cos, exp, hypot, radians
 from statistics import median
+
+from ..floor_geometry import FloorProjection
 
 
 def distance_to_polygon(point, polygon):
@@ -22,92 +24,15 @@ def distance_to_polygon(point, polygon):
     return distance if inside else -distance
 
 
-def project_box(camera, box, calibration):
-    """Use the midpoint of the bottom edge when it plausibly lies on the floor."""
-    x1, y1, x2, y2 = box
-    height = y2 - y1
-    camera = str(camera)
-    geometry = calibration['office_geometry']
-    guards = calibration['guards']
-    y_min, y_max = guards['foot_y_px_exclusive']
-    x_min, x_max = guards['box_x_bounds_px_exclusive']
-    if height < guards['min_box_height_px'] or not (y_min < y2 < y_max and x_min < x1 < x2 < x_max):
-        return None
-
-    x, y = (x1 + x2) / 2, y2
-    if 'occlusions' in geometry:
-        occlusions, mask_scale = geometry['occlusions'], 1
-    else:
-        occlusions = geometry.get('occlusion_polygons_in_864x648', {})
-        mask_scale = calibration['anchors'].get('image_scale', 3)
-    if any(distance_to_polygon((x / mask_scale, y / mask_scale), polygon) >= 0
-           for polygon in occlusions.get(camera, [])):
-        return None
-    matrix = geometry['matrices'].get(camera)
-    if matrix is None:
-        return None
-    u, v, w = (a * x + b * y + c for a, b, c in matrix)
-    if abs(w) < 1e-8:
-        return None
-    u, v = u / w, v / w
-    jacobian_norm = sqrt(sum(
-        ((matrix[row][col] - coord * matrix[2][col]) / w) ** 2
-        for row, coord in enumerate((u, v))
-        for col in (0, 1)
-    ))
-    lower, upper = guards['local_scale_inclusive_exclusive']
-    if not all(isfinite(value) for value in (u, v)) or not lower <= height * jacobian_norm / sqrt(2) < upper:
-        return None
-    correction = geometry.get('corrections', {}).get(camera)
-    if correction is None:
-        legacy = geometry.get('junction_corrections', {}).get(camera)
-        if legacy:
-            correction = legacy_correction(camera, legacy)
-    if correction:
-        u, v = correct_position(u, v, correction)
-    if distance_to_polygon((u, v), calibration['anchors']['walkable']) < -guards['walkable_slack_plan_units']:
-        return None
-    return u, v
-
-
-def legacy_correction(camera, parameters):
-    """Convert residuals from the historical office-map handoff."""
-    if camera == '2':
-        return {'type': 'gaussian_affine', 'center': (292, 185), 'width': (24, 26),
-                'parameters': parameters}
-    if camera == '5':
-        return {'type': 'lateral_spline', 'center': 350, 'width': 65,
-                'knots': (280, 320, 350, 380, 420, 480), 'parameters': parameters}
-    return None
-
-
-def correct_position(x, y, config):
-    coefficients = config['parameters']
-    if config['type'] == 'gaussian_affine':
-        cx, cy = config['center']
-        wx, wy = config['width']
-        nx, ny = (x - cx) / wx, (y - cy) / wy
-        weight = exp(-0.5 * (nx * nx + ny * ny))
-        offset_x, slope_x, offset_y, slope_y = coefficients
-        return x + weight * (offset_x + slope_x * nx), y + weight * (offset_y + slope_y * ny)
-    if config['type'] == 'lateral_spline':
-        lateral = coefficients[0] * exp(-0.5 * ((y - config['center']) / config['width']) ** 2)
-        knots = config['knots']
-        offsets = (0, *coefficients[1:], 0)
-        for i, (left, right) in enumerate(zip(knots, knots[1:])):
-            if left <= y <= right:
-                fraction = (y - left) / (right - left)
-                return x + lateral, y + offsets[i] + fraction * (offsets[i + 1] - offsets[i])
-        return x + lateral, y
-    raise ValueError(f"Unsupported floor correction: {config['type']!r}")
-
-
-def floor_tracks(observations, calibration, sample_hz, common_t0, smoothing_sigma):
+def floor_tracks(observations, site, image_sizes, sample_hz, common_t0, smoothing_sigma):
     """Fuse accepted observations per global ID on the shared sampled grid."""
+    geometry = site['geometry']
+    projection = FloorProjection(geometry, image_sizes, site.get('guards'))
+    walkable = geometry.get('walkable', ())
     points = defaultdict(list)
     for row in observations:
         camera, time, video_time, identity, *box = row[:8]
-        projected = project_box(camera, box, calibration)
+        projected = projection.point(camera, box)
         if projected is None:
             continue
         tick = round(time * sample_hz)
@@ -118,7 +43,7 @@ def floor_tracks(observations, calibration, sample_hz, common_t0, smoothing_sigm
         ))
 
     tracks = defaultdict(list)
-    radius = calibration['guards']['fusion_diameter_plan_units']
+    radius = projection.guards['fusion_diameter_plan_units']
     for (identity, tick), observations_at_tick in sorted(points.items()):
         time = tick / sample_hz
         by_camera = {}
@@ -143,7 +68,7 @@ def floor_tracks(observations, calibration, sample_hz, common_t0, smoothing_sigm
                 point['segment'] = segment
                 point['x_raw'], point['y_raw'] = point['x'], point['y']
             if smoothing_sigma > 0 and len(run) >= 5:
-                smooth_positions(run, smoothing_sigma * sample_hz, calibration['anchors']['walkable'])
+                smooth_positions(run, smoothing_sigma * sample_hz, walkable)
     return {'schema_version': 1, 'sample_hz': sample_hz, 'displayed_clock_zero': common_t0,
             'plan': 'plan.svg', 'smoothing_sigma_s': smoothing_sigma, 'tracks': dict(tracks)}
 

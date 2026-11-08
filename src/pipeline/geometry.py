@@ -6,6 +6,8 @@ from collections import defaultdict
 import cv2
 import numpy as np
 
+from ..floor_geometry import FloorProjection, footpoint
+
 TIME_TOLERANCE = .45
 POSITION_SCALE = .65
 
@@ -74,18 +76,6 @@ def edge_positions(tracks, edges, models, image_sizes):
     return positions
 
 
-def project(point, matrix):
-    """Return planar coordinates and a local scale, measured via the Jacobian."""
-    _, x, y, height = point
-    value = matrix @ np.array([x, y, 1.])
-    if abs(value[2]) < 1e-8:
-        return None
-    xy = value[:2] / value[2]
-    jacobian = (matrix[:2, :2] - xy[:, None] * matrix[2, :2]) / value[2]
-    scale = height * np.linalg.norm(jacobian) / np.sqrt(2.)
-    return (xy, float(scale)) if np.isfinite(xy).all() and 1 <= scale < 4000 else None
-
-
 def overlap(left, right):
     start, end = max(left[0][0],right[0][0]), min(left[-1][0],right[-1][0])
     if end - start < .6:
@@ -108,63 +98,22 @@ def overlap(left, right):
 
 
 
-def footpoint(timestamp, box, image_size):
-    height, width = image_size
-    x1, y1, x2, y2 = box
-    box_height = y2 - y1
-    sy, sx = height / 1944, width / 2592
-    if box_height >= 45 * sy and 30 * sy < y2 < 1910 * sy and 15 * sx < x1 < x2 < 2577 * sx:
-        return timestamp, (x1 + x2) / 2, y2, box_height
-    return None
-
-
-def correct_position(xy, config):
-    if config is None:
-        return xy
-    params = np.asarray(config['parameters'])
-    if config['type'] == 'gaussian_affine':
-        normalized = (xy - config['center']) / config['width']
-        strength = np.exp(-.5 * np.sum(normalized ** 2, axis=-1, keepdims=True))
-        offset, slope = params.reshape(2, 2).T
-        return xy + strength * (offset + slope * normalized)
-    if config['type'] == 'lateral_spline':
-        y = xy[..., 1]
-        lateral = params[0] * np.exp(-.5 * ((y - config['center']) / config['width']) ** 2)
-        longitudinal = np.interp(y, config['knots'], np.r_[0., params[1:], 0.])
-        return xy + np.stack((lateral, longitudinal), axis=-1)
-    raise ValueError(f"Unsupported floor correction: {config['type']!r}")
-
-
-def planar_tracks(frames, geometry, image_sizes):
-    matrices = {int(camera): np.asarray(matrix) for camera, matrix in geometry.get('matrices', {}).items()}
-    masks = {int(camera): [np.asarray(polygon, np.float32) for polygon in polygons]
-             for camera, polygons in geometry.get('occlusions', {}).items()}
-    corrections = {int(camera): config for camera, config in geometry.get('corrections', {}).items()}
-    floor = np.asarray(geometry['walkable'], np.float32) if geometry.get('walkable') else None
+def planar_tracks(frames, projection):
     points = defaultdict(list)
     for frame in frames:
         camera = frame['camera']
-        if camera not in matrices:
-            continue
         for track in frame['tracks']:
-            point = footpoint(frame['time'], track['box'], image_sizes[camera])
-            if point is None or any(cv2.pointPolygonTest(mask, point[1:3], False) >= 0
-                                    for mask in masks.get(camera, ())):
-                continue
-            value = project(point, matrices[camera])
-            if value is None:
-                continue
-            xy = correct_position(value[0], corrections.get(camera))
-            if floor is None or cv2.pointPolygonTest(floor, tuple(xy), True) >= -8:
-                points[track['id']].append((frame['time'], xy))
+            xy = projection.point(camera, track['box'])
+            if xy is not None:
+                points[track['id']].append((frame['time'], np.asarray(xy)))
     return {local: sorted(rows, key=lambda point: point[0]) for local, rows in points.items()}
 
 
-def geometry_evidence(tracks, frames, raw, geometry, image_sizes):
+def geometry_evidence(tracks, frames, raw, geometry, image_sizes, guards=None):
     pairs = {tuple(sorted(pair)) for pair in geometry.get('overlap_pairs', ())}
     if not pairs:
         return [], set()
-    points = planar_tracks(frames, geometry, image_sizes)
+    points = planar_tracks(frames, FloorProjection(geometry, image_sizes, guards))
     simultaneous, far = [], set()
     for appearance, a, b, _ in raw:
         ca, cb = tracks[a][0][0], tracks[b][0][0]

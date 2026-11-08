@@ -75,14 +75,8 @@ def candidate_edges(tracks, vectors):
     return sorted(edges, key=lambda edge: (-edge[0], edge[1], edge[2]))
 
 
-def agglomerate(tracks, edges, threshold, *, gap_weight=None, edge_importance=None, merge_allowed=None):
-    """Greedily merge the highest scoring compatible groups using edge averages.
-
-    The optional weighting function returns positive importance for a gap or
-    for an edge, including its endpoints.
-    """
-    if gap_weight is not None and edge_importance is not None:
-        raise ValueError('Specify only one edge weighting function')
+def agglomerate(tracks, edges, threshold, *, edge_importance=None):
+    """Greedily merge the highest scoring compatible groups using edge averages."""
     members = {identity: {identity} for identity in tracks}
     occupancy = {identity: {(camera, frame) for camera, frame, *_ in rows}
                  for identity, rows in tracks.items()}
@@ -99,10 +93,7 @@ def agglomerate(tracks, edges, threshold, *, gap_weight=None, edge_importance=No
             heapq.heappush(queue, (-average, left, right, total, weight_sum))
 
     for score, left, right, gap in edges:
-        if edge_importance is not None:
-            importance = edge_importance(left, right, gap)
-        else:
-            importance = 1 if gap_weight is None else gap_weight(gap)
+        importance = 1 if edge_importance is None else edge_importance(left, right, gap)
         add(left, right, score * importance, importance)
 
     while queue:
@@ -112,8 +103,6 @@ def agglomerate(tracks, edges, threshold, *, gap_weight=None, edge_importance=No
         if not occupancy[left].isdisjoint(occupancy[right]):
             continue
         if interval_gap(intervals[left], intervals[right]) > MAX_GAP:
-            continue
-        if merge_allowed is not None and not merge_allowed(members[left], members[right], weight_sum):
             continue
         right_edges = neighbors.pop(right)
         neighbors[left].pop(right, None)

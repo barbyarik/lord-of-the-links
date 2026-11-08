@@ -3,7 +3,7 @@ from collections import Counter, defaultdict
 from copy import deepcopy
 from datetime import timedelta
 
-from .dataset_io import time_value
+from .dataset_io import bundle_file, time_value
 from ..export.timing import disambiguate_clock
 
 
@@ -19,8 +19,11 @@ def camera_manifest(data, origin, media):
             'cameras': [],
         }
         for camera_id, camera in data['cameras'].items():
-            source = (data['camera_root'] / camera['source']).resolve()
-            playable = source.is_file() and source.suffix.lower() in {'.mp4', '.webm'}
+            source = None
+            if camera['source'] and data['camera_root'].is_relative_to(data['root']):
+                relative = data['camera_root'].relative_to(data['root']) / camera['source']
+                source = bundle_file(data['root'], relative, {'.mp4', '.webm'})
+            playable = source is not None
             video_url = f'/media/video/{camera_id}'
             if playable:
                 media[video_url] = str(source)
@@ -45,7 +48,7 @@ def camera_manifest(data, origin, media):
     return manifest
 
 
-def project_frames(data, origin, media):
+def project_frames(data, origin, media, preview_cameras):
     def seconds(value):
         clock = time_value(value)
         if clock is None or origin is None:
@@ -76,9 +79,12 @@ def project_frames(data, origin, media):
         else:
             video_time = frame['pts_ms'] / 1000 if frame['pts_ms'] is not None else None
         image_url = None
-        if frame.get('image'):
-            image_url = f'/media/frame/{camera_id}/{frame["sample_ms"]}'
-            media[image_url] = str((data['annotation_root'] / frame['image']).resolve())
+        if camera_id in preview_cameras and frame.get('image'):
+            relative = data['annotation_root'].relative_to(data['root']) / frame['image']
+            preview = bundle_file(data['root'], relative, {'.jpg', '.jpeg', '.png'})
+            if preview is not None:
+                image_url = f'/media/frame/{camera_id}/{frame["sample_ms"]}'
+                media[image_url] = str(preview)
         frames.append([
             camera_id, time, video_time, frame['review_status'], frame['sample_ms'],
             source_time, frame['clock_status'], frame['pts_ms'], frame['frame_index'],
@@ -92,7 +98,10 @@ def build_ui(data):
     clocks = [time_value(frame['clock_time']) for frame in data['frames'] if frame.get('clock_time')]
     origin = time_value(data['manifest']['common_t0']) if legacy else min(clocks, default=None)
     media = {}
-    frames = project_frames(data, origin, media)
+    manifest = camera_manifest(data, origin, media)
+    preview_cameras = {camera['camera_id'] for camera in manifest['cameras']
+                       if camera['display_mode'] == 'images'}
+    frames = project_frames(data, origin, media, preview_cameras)
     # Include leading samples whose clock was unreadable/missing. This changes
     # only the relative UI origin; ISO clock values stay in the source records.
     shift = min((row[1] for row in frames if row[1] is not None), default=0)
@@ -102,7 +111,8 @@ def build_ui(data):
             for column in (1, 5):
                 if row[column] is not None:
                     row[column] -= shift
-    manifest = camera_manifest(data, origin, media)
+    if not legacy:
+        manifest['common_t0'] = origin.isoformat() if origin else None
     manifest['ui_clock_adjusted_frames'] = disambiguate_clock(frames, data['cameras'])
     manifest['ui_origin_estimated'] = not legacy and shift < 0
     index = {(row[0], row[4]): row for row in frames}

@@ -156,10 +156,20 @@ def evaluation_data(root: Path, frames: list[dict], start: float, end: float,
     for row in ref_observations:
         truth[int(row["camera_id"]), int(row["frame_index"])].append(row)
 
+    reviewed_times = {}
+    for frame in ref_frames:
+        if (frame["review_status"] != "reviewed" or not frame.get("clock_time")
+                or int(frame["sample_ms"]) % 1000):
+            continue
+        frame_key = int(frame["camera_id"]), int(frame["frame_index"])
+        if frame_key in reviewed_times:
+            raise ValueError(f"Duplicate source frame in reference grid: {frame_key}")
+        reviewed_times[frame_key] = _clock(frame["clock_time"])
+
     predicted = {}
     prediction_cameras = defaultdict(set)
     conflicts = Counter()
-    all_prediction_frames_in_window = 0
+    prediction_times = {}
     for frame in frames:
         camera, frame_index = int(frame["camera"]), int(frame["frame_index"])
         frame_key = camera, frame_index
@@ -174,8 +184,9 @@ def evaluation_data(root: Path, frames: list[dict], start: float, end: float,
         if len(set(ids)) != len(ids):
             raise ValueError(f"Duplicate local ID in prediction frame: {frame_key}")
         predicted[frame_key] = tracks
-        if in_scope(float(frame["time"])):
-            all_prediction_frames_in_window += 1
+        timestamp = reviewed_times.get(frame_key, float(frame["time"]))
+        if in_scope(timestamp):
+            prediction_times[frame_key] = timestamp
             for left, right in combinations(sorted(ids), 2):
                 conflicts[camera, left, right] += 1
     ambiguous_ids = sorted(identity for identity, cameras in prediction_cameras.items() if len(cameras) > 1)
@@ -190,19 +201,10 @@ def evaluation_data(root: Path, frames: list[dict], start: float, end: float,
     match_rows = []
     standard_frames = []
     matched_unknown, total_unknown = 0, 0
-    visited_ref_frames = set()
-    for frame in ref_frames:
-        if (frame["review_status"] != "reviewed" or not frame.get("clock_time")
-                or int(frame["sample_ms"]) % 1000):
-            continue
-        timestamp = _clock(frame["clock_time"])
+    for frame_key, timestamp in reviewed_times.items():
         if not in_scope(timestamp):
             continue
-        camera, frame_index = int(frame["camera_id"]), int(frame["frame_index"])
-        frame_key = camera, frame_index
-        if frame_key in visited_ref_frames:
-            raise ValueError(f"Duplicate source frame in reference grid: {frame_key}")
-        visited_ref_frames.add(frame_key)
+        camera, frame_index = frame_key
         gt = truth.get(frame_key, [])
         pred = predicted.get(frame_key, [])
         gt_boxes = [_box([r["x_min"], r["y_min"], r["x_max"], r["y_max"]]) for r in gt]
@@ -258,7 +260,8 @@ def evaluation_data(root: Path, frames: list[dict], start: float, end: float,
         "standard_frames": standard_frames,
         "simultaneous_local_pairs": [{"camera": c, "left_id": a, "right_id": b, "frame_count": n}
                                      for (c, a, b), n in sorted(conflicts.items())],
-        "prediction_frames_in_window": all_prediction_frames_in_window,
+        "prediction_frames_in_window": len(prediction_times),
+        "prediction_times": prediction_times,
         "reference_episodes_per_person_full_recording": episodes_per_person,
         "association_exclusions": {"global_ids": sorted(excluded_groups),
                                    "local_ids": sorted(excluded_locals),
@@ -459,19 +462,22 @@ def evaluate_predictions(predictions, reference, *, start=None, end=None):
     frames = predictions['frames']
     if end is None:
         end = max((frame['time'] for frame in frames), default=start) + 1 / predictions['sampling_hz']
+    data = evaluation_data(reference, frames, start, end, 60, include_standard_frames=True)
+    prediction_times = data['prediction_times']
     assignment = {}
     tracks = defaultdict(list)
     for frame in frames:
-        if not start <= frame['time'] < end:
-            continue
         camera = frame['camera']
+        frame_index = frame['frame_index']
+        timestamp = prediction_times.get((camera, frame_index))
+        if timestamp is None:
+            continue
         for track in frame['tracks']:
             local = track['id']
             group = track['global_id']
             if assignment.setdefault(local, group) != group:
                 raise ValueError(f'Local track {local} has conflicting global IDs')
-            tracks[local].append((camera, frame['frame_index'], frame['time'], track['box']))
-    data = evaluation_data(reference, frames, start, end, 60, include_standard_frames=True)
+            tracks[local].append((camera, frame_index, timestamp, track['box']))
     paired = measure(data, assignment)
     support = observations_by_group(tracks, assignment, start)
     return {

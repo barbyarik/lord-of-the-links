@@ -63,7 +63,7 @@ def evaluate(args):
 def build_demo(args):
     from .export.bundle import build_bundle
 
-    output = build_bundle(args.predictions, args.output, calibration=args.calibration,
+    output = build_bundle(args.predictions, args.output, calibration=args.site,
                           plan=args.plan, media=cameras(args.video), smoothing_sigma=args.sigma)
     print(output)
 
@@ -98,7 +98,7 @@ def main():
     demo.set_defaults(handler=build_demo)
     demo.add_argument('--predictions', required=True, type=Path)
     demo.add_argument('--output', required=True, type=Path)
-    demo.add_argument('--calibration', type=Path, default=ROOT / 'config/site/calibration.json')
+    demo.add_argument('--site', '--calibration', type=Path, default=DEFAULT_SITE)
     demo.add_argument('--plan', type=Path)
     demo.add_argument('--video', action='append', required=True, metavar='CAMERA=PATH')
     demo.add_argument('--sigma', type=float, default=.32, help='Map display smoothing in seconds')
