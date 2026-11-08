@@ -1,0 +1,8 @@
+{
+  "name": "greedy-add",
+  "enabled_rules": [
+    "shape",
+    "semantic_zones",
+    "short_group"
+  ]
+}

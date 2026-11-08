@@ -1,0 +1,6 @@
+profile,rule_count,enabled,ids,pair_f1,idf1,hota,wrong_person_observations,tp,fp,fn
+core,0,,163,0.6385636221701796,0.6593178576060174,0.5093672329483329,258,2957,1155,642
+greedy-add,3,semantic_zones shape short_group,72,0.6371938577273069,0.7115165336374002,0.5421178390965196,229,2909,508,690
+greedy-remove,4,mirror_votes screens shape short_group,71,0.6389734724214028,0.7257923815062518,0.552976977198972,229,2909,370,690
+balanced,11,boundary_dedup early_dedup handoff late_overlap mirror_votes penalty reflection screens shape short_group strict_floor,70,0.671703112037957,0.7567331489299752,0.5692138595305043,202,2910,360,689
+full,15,boundary_dedup bridge early_dedup far_veto handoff late_overlap mirror_votes penalty reflection screens semantic_zones shape short_group static strict_floor,66,0.6656299305710796,0.7528417371028855,0.5682061116906563,219,2910,353,689

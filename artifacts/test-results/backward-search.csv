@@ -1,0 +1,13 @@
+step,rule,enabled,ids,pair_f1,idf1,hota,wrong_person_observations,tp,fp,fn
+0,,boundary_dedup bridge early_dedup far_veto handoff late_overlap mirror_votes penalty reflection screens semantic_zones shape short_group static strict_floor,66,0.6656299305710796,0.7528417371028855,0.5682061116906563,219,2910,353,689
+1,static,boundary_dedup bridge early_dedup far_veto handoff late_overlap mirror_votes penalty reflection screens semantic_zones shape short_group strict_floor,68,0.6656299305710796,0.7521840419336051,0.567782754837105,219,2910,359,689
+2,bridge,boundary_dedup early_dedup far_veto handoff late_overlap mirror_votes penalty reflection screens semantic_zones shape short_group strict_floor,69,0.671703112037957,0.7569535459443716,0.5693551722937709,202,2910,358,689
+3,far_veto,boundary_dedup early_dedup handoff late_overlap mirror_votes penalty reflection screens semantic_zones shape short_group strict_floor,69,0.671703112037957,0.7569535459443716,0.5693551722937709,202,2910,358,689
+4,semantic_zones,boundary_dedup early_dedup handoff late_overlap mirror_votes penalty reflection screens shape short_group strict_floor,70,0.671703112037957,0.7567331489299752,0.5692138595305043,202,2910,360,689
+5,handoff,boundary_dedup early_dedup late_overlap mirror_votes penalty reflection screens shape short_group strict_floor,71,0.6712863421951885,0.7558596593390595,0.5687206534206981,202,2910,360,689
+6,boundary_dedup,early_dedup late_overlap mirror_votes penalty reflection screens shape short_group strict_floor,72,0.6712863421951885,0.7542940320232897,0.5674853336028804,202,2910,361,689
+7,strict_floor,early_dedup late_overlap mirror_votes penalty reflection screens shape short_group,71,0.6670211065700764,0.748471615720524,0.5637452594571977,222,2910,361,689
+8,early_dedup,late_overlap mirror_votes penalty reflection screens shape short_group,72,0.6631286826599326,0.7469072915150633,0.5616448083328924,222,2910,362,689
+9,penalty,late_overlap mirror_votes reflection screens shape short_group,69,0.6392485435622177,0.7285942724233173,0.5538696338227419,232,2909,371,690
+10,late_overlap,mirror_votes reflection screens shape short_group,70,0.6392311418956961,0.7277220526239279,0.55370175102861,229,2909,371,690
+11,reflection,mirror_votes screens shape short_group,71,0.6389734724214028,0.7257923815062518,0.552976977198972,229,2909,370,690

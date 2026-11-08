@@ -1,0 +1,20 @@
+{
+  "name": "full",
+  "enabled_rules": [
+    "screens",
+    "early_dedup",
+    "shape",
+    "penalty",
+    "strict_floor",
+    "far_veto",
+    "bridge",
+    "boundary_dedup",
+    "late_overlap",
+    "reflection",
+    "handoff",
+    "semantic_zones",
+    "static",
+    "mirror_votes",
+    "short_group"
+  ]
+}
