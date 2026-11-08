@@ -3,6 +3,10 @@
   "profile": "balanced",
   "sampling_hz": 5,
   "recording_start": 1791470400.0,
+  "source_dimensions": {
+    "3": [2592, 1944],
+    "5": [2592, 1944]
+  },
   "frames": [
     {
       "camera": 3,
