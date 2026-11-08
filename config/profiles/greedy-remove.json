@@ -1,0 +1,9 @@
+{
+  "name": "greedy-remove",
+  "enabled_rules": [
+    "screens",
+    "shape",
+    "mirror_votes",
+    "short_group"
+  ]
+}

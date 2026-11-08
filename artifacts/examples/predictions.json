@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "profile": "balanced",
+  "sampling_hz": 5,
+  "recording_start": 1791470400.0,
+  "frames": [
+    {
+      "camera": 3,
+      "frame_index": 240,
+      "pts": 9.6,
+      "time": 1791470400.0,
+      "tracks": [
+        {"id": "3:1:7", "global_id": "P001", "box": [1170, 322, 1221, 476], "score": 0.91}
+      ]
+    },
+    {
+      "camera": 5,
+      "frame_index": 192,
+      "pts": 7.68,
+      "time": 1791470400.0,
+      "tracks": [
+        {"id": "5:1:4", "global_id": "P001", "box": [804, 810, 904, 1150], "score": 0.86}
+      ]
+    },
+    {
+      "camera": 3,
+      "frame_index": 245,
+      "pts": 9.8,
+      "time": 1791470400.2,
+      "tracks": []
+    },
+    {
+      "camera": 5,
+      "frame_index": 197,
+      "pts": 7.88,
+      "time": 1791470400.2,
+      "tracks": [
+        {"id": "5:1:4", "global_id": "P001", "box": [808, 808, 910, 1155], "score": 0.87}
+      ]
+    }
+  ]
+}

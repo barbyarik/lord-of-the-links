@@ -1,0 +1,16 @@
+{
+  "name": "balanced",
+  "enabled_rules": [
+    "screens",
+    "early_dedup",
+    "shape",
+    "penalty",
+    "strict_floor",
+    "boundary_dedup",
+    "late_overlap",
+    "reflection",
+    "handoff",
+    "mirror_votes",
+    "short_group"
+  ]
+}
